@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/vercel-app/api/index.py"
+    },
+    {
+      "source": "/ask",
+      "destination": "/vercel-app/api/index.py"
+    },
+    {
+      "source": "/version",
+      "destination": "/vercel-app/api/index.py"
+    },
+    {
+      "source": "/models",
+      "destination": "/vercel-app/api/index.py"
+    },
+    {
+      "source": "/demo",
+      "destination": "/vercel-app/public/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/vercel-app/public/$1"
+    }
+  ]
+}
