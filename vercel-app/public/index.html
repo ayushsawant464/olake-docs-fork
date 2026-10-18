@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OLake AI Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .prose pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 8px 0; }
+    .prose code { color: #58a6ff; font-family: monospace; }
+    .prose p { margin-bottom: 8px; line-height: 1.6; }
+    .prose h1, .prose h2, .prose h3 { color: #f0f6fc; font-weight: 600; margin-top: 14px; margin-bottom: 6px; }
+    .prose ul, .prose ol { padding-left: 20px; margin-bottom: 8px; }
+    .prose li { margin-bottom: 4px; }
+    .prose blockquote { border-left: 4px solid #388bfd; padding-left: 12px; color: #8b949e; margin: 8px 0; }
+    .chat-bubble-user { background: #1f6feb; color: #ffffff; border-radius: 18px 18px 4px 18px; }
+    .chat-bubble-bot { background: #161b22; border: 1px solid #30363d; border-radius: 18px 18px 18px 4px; }
+    .pill { background: #21262d; border: 1px solid #30363d; transition: all 0.2s; }
+    .pill:hover { background: #30363d; border-color: #58a6ff; color: #58a6ff; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="border-b border-gray-800 bg-[#161b22] px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-50">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-md">
+        ⚡
+      </div>
+      <div>
+        <h1 class="font-bold text-lg text-white tracking-wide">OLake Assistant</h1>
+        <p class="text-xs text-gray-400">Autonomous In-App Lakehouse Documentation Chatbot</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-3">
+      <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-950 text-green-400 border border-green-800">
+        <span class="w-2 h-2 mr-1.5 bg-green-400 rounded-full animate-pulse"></span>
+        Online
+      </span>
+      <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-950 text-blue-400 border border-blue-800">
+        GLM-4.7-Flash
+      </span>
+    </div>
+  </header>
+
+  <!-- Quick Prompts -->
+  <div class="bg-[#0d1117] border-b border-gray-800 px-6 py-2.5 overflow-x-auto">
+    <div class="flex space-x-2 text-xs">
+      <button onclick="setQuery('How do I set up PostgreSQL CDC to Iceberg on AWS RDS?')" class="pill px-3 py-1.5 rounded-full whitespace-nowrap text-gray-300">
+        🐘 Postgres CDC Setup
+      </button>
+      <button onclick="setQuery('Does OLake support Oracle as a source? How does it handle CDC?')" class="pill px-3 py-1.5 rounded-full whitespace-nowrap text-gray-300">
+        🏛️ Oracle Support & LogMiner
+      </button>
+      <button onclick="setQuery('How do I configure Slack webhook alerts when a sync job fails?')" class="pill px-3 py-1.5 rounded-full whitespace-nowrap text-gray-300">
+        🔔 Slack Webhook Alerts
+      </button>
+      <button onclick="setQuery('How do I deploy OLake on Kubernetes using the Helm chart?')" class="pill px-3 py-1.5 rounded-full whitespace-nowrap text-gray-300">
+        ☸️ Kubernetes Helm Deployment
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat Area -->
+  <main class="flex-1 overflow-y-auto px-4 sm:px-6 py-6 max-w-4xl mx-auto w-full space-y-6" id="chat-messages">
+    <!-- Welcome message -->
+    <div class="flex items-start space-x-3">
+      <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+        AI
+      </div>
+      <div class="chat-bubble-bot p-4 shadow-sm max-w-[85%] text-sm">
+        <p class="font-semibold text-white mb-1">Hello! I am your OLake Technical Assistant.</p>
+        <p class="text-gray-300">I can answer questions regarding pipeline setup, CDC replication, Iceberg writers, Kubernetes Helm charts, and error debugging using official OLake documentation and open-source repositories.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Input Form -->
+  <footer class="border-t border-gray-800 bg-[#161b22] p-4 sticky bottom-0 z-50">
+    <div class="max-w-4xl mx-auto">
+      <form id="chat-form" class="flex space-x-2">
+        <input 
+          type="text" 
+          id="user-input" 
+          placeholder="Ask anything about OLake (e.g. 'How do I upgrade UI on Kubernetes?')..." 
+          class="flex-1 bg-[#0d1117] border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder-gray-500"
+          autocomplete="off"
+          required
+        />
+        <button 
+          type="submit" 
+          id="send-btn"
+          class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-3 rounded-xl text-sm transition flex items-center justify-center disabled:opacity-50 shadow-md">
+          <span>Send</span>
+          <svg id="send-icon" class="w-4 h-4 ml-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+          </svg>
+          <svg id="loading-spinner" class="animate-spin w-4 h-4 ml-1.5 hidden" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </button>
+      </form>
+      <div class="text-[11px] text-gray-500 text-center mt-2">
+        Grounded strictly by OLake Documentation & Open-Source Code. Powered by OpenRouter API.
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const chatForm = document.getElementById('chat-form');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const sendIcon = document.getElementById('send-icon');
+    const loadingSpinner = document.getElementById('loading-spinner');
+
+    function setQuery(text) {
+      userInput.value = text;
+      userInput.focus();
+    }
+
+    function scrollToBottom() {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function appendMessage(role, content, sources = []) {
+      const wrapper = document.createElement('div');
+      wrapper.className = role === 'user' ? 'flex justify-end' : 'flex items-start space-x-3';
+
+      if (role === 'user') {
+        wrapper.innerHTML = `
+          <div class="chat-bubble-user px-4 py-3 text-sm max-w-[85%] shadow-sm">
+            ${escapeHtml(content)}
+          </div>
+        `;
+      } else {
+        const renderedHtml = marked.parse(content);
+        let sourcesHtml = '';
+        if (sources && sources.length > 0) {
+          const pills = sources.map(s => `<span class="inline-block bg-gray-800 text-blue-400 text-[11px] px-2 py-0.5 rounded border border-gray-700 mr-1.5 mb-1">📄 ${escapeHtml(s)}</span>`).join('');
+          sourcesHtml = `<div class="mt-3 pt-2.5 border-t border-gray-800 text-xs text-gray-400"><div class="font-medium text-gray-300 mb-1">Cited Sources:</div><div class="flex flex-wrap">${pills}</div></div>`;
+        }
+
+        wrapper.innerHTML = `
+          <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+            AI
+          </div>
+          <div class="chat-bubble-bot p-4 shadow-sm max-w-[85%] text-sm prose prose-invert overflow-hidden">
+            ${renderedHtml}
+            ${sourcesHtml}
+          </div>
+        `;
+      }
+
+      chatMessages.appendChild(wrapper);
+      scrollToBottom();
+      document.querySelectorAll('pre code').forEach((el) => {
+        hljs.highlightElement(el);
+      });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = userInput.value.trim();
+      if (!question) return;
+
+      appendMessage('user', question);
+      userInput.value = '';
+
+      sendBtn.disabled = true;
+      sendIcon.classList.add('hidden');
+      loadingSpinner.classList.remove('hidden');
+
+      try {
+        const response = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: question })
+        });
+
+        if (!response.ok) {
+          // Fallback to /ask if /api/ask returned 404
+          const altResponse = await fetch('/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: question })
+          });
+          if (!altResponse.ok) {
+            throw new Error(`HTTP ${altResponse.status}`);
+          }
+          const data = await altResponse.json();
+          appendMessage('bot', data.answer, data.sources);
+          return;
+        }
+
+        const data = await response.json();
+        appendMessage('bot', data.answer, data.sources);
+      } catch (err) {
+        appendMessage('bot', `⚠️ **Error communicating with assistant**: ${err.message}. Please check that the server is online and your OpenRouter API key is configured.`);
+      } finally {
+        sendBtn.disabled = false;
+        sendIcon.classList.remove('hidden');
+        loadingSpinner.classList.add('hidden');
+        userInput.focus();
+      }
+    });
+  </script>
+</body>
+</html>

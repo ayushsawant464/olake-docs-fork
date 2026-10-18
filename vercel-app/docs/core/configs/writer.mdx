@@ -1,0 +1,49 @@
+---
+title: Destination config
+description: "How to configure destination.json for OLake: links to the Iceberg writer (Glue, JDBC, REST, Hive), the S3 Parquet writer and the local Parquet writer."
+sidebar_position: 4
+---
+
+# `destination.json`
+
+The destination configuration varies by output format and storage system. Click on the appropriate destination tab below to access the detailed configuration guide:
+
+<Tabs>
+
+<TabItem value="iceberg-config" label="Iceberg" default >
+
+## Apache Iceberg
+
+For detailed Apache Iceberg destination configuration, including catalog setup (AWS Glue, JDBC, REST, Hive), storage options, and table properties, please refer to the [Iceberg Writer Documentation](/docs/writers/iceberg/catalog/rest/).
+
+The Iceberg writer documentation covers:
+- AWS Glue catalog configuration
+- JDBC catalog setup  
+- REST catalog configuration
+- Hive catalog setup
+- Storage configurations
+- Table partitioning and properties
+
+</TabItem>
+
+<TabItem value="s3-config" label="S3" >
+
+## S3 Writer 
+
+For detailed S3 Parquet writer configuration, including bucket setup, authentication, file formats, and compression options, please refer to the [Parquet Writer Documentation](/docs/writers/parquet/config).
+
+</TabItem>
+
+<TabItem value="local-config" label="Local">
+
+## Local Parquet Writer 
+
+For detailed local Parquet writer configuration, including directory mapping, Docker volume setup, and file organization, please refer to the [Parquet Writer Documentation](/docs/writers/parquet/config).
+
+</TabItem>
+
+</Tabs>
+
+:::tip
+Before configuring your destination, ensure you have completed the [getting started guide](../../getting-started/quickstart.mdx) for your source database. For additional background information, refer to the [OLake README](https://github.com/datazip-inc/olake/blob/master/README.md).
+:::

@@ -1,0 +1,27 @@
+```json title="source.json"
+{
+    "host": "localhost",
+    "port": 5432,
+    "database": "main",
+    "username": "main",
+    "password": "password",
+    "jdbc_url_params": {"connect_timeout":"20"},
+    "retry_count": 3,
+    "schemas": ["public", "analytics"],
+    "ssl": {
+        "mode": "disable"
+    },
+    "update_method": {
+        "replication_slot": "postgres_slot",
+        "publication": "postgres_pub",
+        "initial_wait_time": 120
+    },
+    "max_threads": 5,
+    "ssh_config": {
+        "host": "my-tunnel-host",
+        "port": 22,
+        "username": "my-tunnel-user",
+        "password": "tunnel-password"
+    }
+}
+```

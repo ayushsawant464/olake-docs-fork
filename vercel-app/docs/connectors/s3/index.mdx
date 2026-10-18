@@ -1,0 +1,607 @@
+---
+title: "OLake S3 Source Connector | Multi-Format Data Sync"
+description: Configure OLake S3 Connector for CSV, JSON, and Parquet files. Supports AWS S3, MinIO, LocalStack with incremental sync and folder-based streams.
+sidebar_label: S3
+---
+
+import DateTimeHandling from '@site/src/components/DateTimeHandling';
+import TOCTabLinker from '@site/src/components/TOCTabLinker';
+
+# Overview {/* #overview */}
+
+The OLake Go S3 Source connector ingests data from Amazon S3 or S3-compatible storage (MinIO, LocalStack). It offers features like parallel chunking, checkpointing, and automatic resume for failed full loads. This connector can be used within the OLake UI or run locally via Docker for open-source workflows.
+
+## Key Features
+
+- **Multi-Format Support**: CSV files (`.csv`, `.csv.gz`), JSON files in JSONL and Array formats (`.json`, `.jsonl`, `.json.gz`), XML files (`.xml`, `.xml.gz`) and Parquet files
+- **Automatic Compression Handling**: Transparent gzip decompression (`.gz` files)
+- **Folder-Based Streams**: Groups files by top-level folder into logical streams. Files are automatically grouped into streams based on folder structure. An example of bucket structure is provided below:
+
+  ```text
+  s3://my-bucket/data/
+  ├── users/
+  │   ├── 2024-01-01/users.parquet
+  │   └── 2024-01-02/users.parquet
+  ├── orders/
+  │   ├── 2024-01-01/orders.parquet
+  │   └── 2024-01-02/orders.parquet
+  └── products/
+      └── products.csv.gz
+  ```
+
+  In the above example, as a result we get 3 streams created - `users`, `orders`, `products`.
+
+- **S3-Compatible Services**: AWS S3, MinIO, LocalStack, and other S3 APIs
+
+## Sync Modes Supported
+
+- **Full Refresh**
+- **Full Refresh + Incremental**
+
+<details>
+  <summary>How Incremental Sync Works</summary>
+
+    The S3 connector uses S3's `LastModified` timestamp as a cursor for incremental syncs:
+
+    **How it works**:
+    1. Discovery phase adds `_last_modified_time` field to each stream
+    2. During sync, each record is injected with the file's LastModified timestamp
+    3. State file tracks the latest `_last_modified_time` per stream
+    4. Subsequent syncs only process files with `LastModified > last_synced_timestamp`
+
+    **State Example**:
+    ```json
+    {
+      "users": {
+        "_last_modified_time": "2024-01-15T10:30:00Z"
+      },
+      "orders": {
+        "_last_modified_time": "2024-01-15T11:45:00Z"
+      }
+    }
+    ```
+
+    :::warning[File Modifications]
+    If a file's content changes and is re-uploaded to S3, it will be re-synced in incremental mode because S3 updates the LastModified timestamp.
+    :::
+
+</details>
+
+## Prerequisites
+
+### Version Prerequisites
+
+- AWS S3 (any version) or S3-compatible service (MinIO 2020+, LocalStack 0.12+)
+
+### Connection Prerequisites
+
+- Read access to S3 bucket (`s3:ListBucket`, `s3:GetObject`)
+- AWS Authentication: IAM roles, environment variables, instance profiles (recommended), or static access key and secret key credentials
+- Network connectivity to S3 endpoint
+- IAM policy for S3 source access:
+
+  ```json title="s3-source-iam-policy.json"
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket"
+        ],
+        "Resource": [
+          "arn:aws:s3:::<YOUR_S3_BUCKET>"
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject"
+        ],
+        "Resource": [
+          "arn:aws:s3:::<YOUR_S3_BUCKET>/*"
+        ]
+      }
+    ]
+  }
+  ```
+  - Replace `<YOUR_S3_BUCKET>` with your actual S3 bucket name. 
+  - This policy provides read-only access required for the OLake Go S3 source connector.
+
+**After initial Prerequisites are fulfilled, the configurations for S3 can be configured.**
+
+---
+
+## XML File Handling {/* #xml-properties */}
+
+The following behavior applies when **XML** is selected as the file format. 
+
+### 1. Normalization OFF
+
+When normalization is set to **OFF** in the Streams section, Row Identifier is ignored. OLake Go parses the XML into a JSON tree and stores it as a JSON string in the data column. Nested elements are stored as stringified JSON within that structure.
+
+:::note
+If the **Row Identifier** entered in the source configuration is not present in the XML file, stream discovery will fail.
+:::
+
+**Example input:**
+
+```xml
+<orders>
+  <order id="1001" status="NEW">
+    <order_date>2024-08-01</order_date>
+    <customer>
+      <id>CUST_55</id>
+      <name>Alice</name>
+    </customer>
+  </order>
+</orders>
+```
+
+**Output:**
+
+```json
+{"_last_modified_time":"2026-08-19T11:17:30Z","orders":{"order":"{\"_id\":\"1001\",\"_status\":\"NEW\",\"customer\":\"{\\\"id\\\":\\\"CUST_55\\\",\\\"name\\\":\\\"Alice\\\"}\",\"order_date\":\"2024-08-01\"}"}}
+```
+
+### 2. Normalization ON
+
+When normalization is set to **ON** in the Streams section, OLake Go performs level 0 flattening and stores the data as a table. You must also set **Row Identifier** in the source configuration to the tag that encloses each record.
+
+:::note
+If the **Row Identifier** is invalid (not present in the XML file), stream discovery will fail.
+:::
+
+**Example input** (with `row_identifier = order`):
+
+```xml
+<orders>
+  <order id="1001" status="NEW">
+    <order_date>2024-08-01</order_date>
+    <customer>
+      <id>CUST_55</id>
+      <name>Alice</name>
+    </customer>
+  </order>
+</orders>
+```
+
+**Output table:**
+
+| _id | _status | order_date | customer |
+|-----|---------|------------|----------|
+| 1001 | NEW | 2024-08-01 | `{"id":"CUST_55","name":"Alice"}` |
+
+### 3. Level 0 Flattening Rules
+
+When normalization is **ON**, OLake Go applies level 0 flattening only. Using the example above:
+
+- **Attributes** on the row identifier element become columns prefixed with `_`. For `<order id="1001" status="NEW">`, `id` and `status` become columns `_id` and `_status`.
+- **Direct child elements** become columns using their tag name as-is. For example, `order_date` becomes column `order_date`.
+- **Nested child elements** become columns using their tag name, but their contents are **not** flattened further. The value is stored as a JSON string. For example, `customer` becomes column `customer` with value `{"id":"CUST_55","name":"Alice"}`.
+
+### 4. Repeated Elements and Row Identifier
+
+Choosing the correct **Row Identifier** matters when XML contains repeated elements.
+
+**Example input:**
+
+```xml
+<items>
+  <item>Apple</item>
+  <item>Banana</item>
+</items>
+```
+
+| Row Identifier | Result |
+|----------------|--------|
+| `item` | Table with column `item` and two rows: Apple, Banana |
+| `items` | Table with column `item` and one row: Banana (Apple gets overwritten)  |
+
+:::warning[Row Identifier Selection]
+Always set **Row Identifier** to the tag that encloses each individual record, not the parent wrapper element. An incorrect value can cause data loss from overwrites.
+:::
+
+### 5. Namespaced Elements
+
+When XML elements use namespaces, column names include the namespace prefix.
+
+**Example input** (with normalization **ON**):
+
+```xml
+<h:order id="1">
+  <h:price>10</h:price>
+  <f:price xmlns:f="http://f.ns">20</f:price>
+</h:order>
+```
+
+**Output table columns:** `_id`, `h_price`, `f_price`
+
+The namespace prefix is included in the column name to avoid collisions between elements that share the same local name (for example, `h:price` and `f:price`).
+
+---
+
+## Configuration {/* #configuration */}
+
+<TOCTabLinker
+  queryParam="config-type"
+  headingMap={{
+    'olake-ui':  ['1-navigate-to-the-source-configuration-page', '2-provide-configuration-details', '3-format-specific-configuration', '4-test-connection'],
+    'olake-cli': ['1-create-configuration-file', '2-provide-configuration-details-1', '3-format-specific-configuration-examples', '4-check-source-connection'],
+  }}
+/>
+
+<Tabs queryString="config-type" groupId="s3-config-type">
+
+<TabItem value="olake-ui" label="Use OLake UI for S3" default>
+
+### 1. Navigate to the Source Configuration Page
+
+1. Complete the [OLake UI Setup Guide](/docs/getting-started/quickstart/)
+2. After logging in to the OLake UI, select the `Sources` tab from the left sidebar
+3. Click **`Create Source`** on the top right corner
+4. Select **S3** from the connector dropdown
+5. Provide a name for this source
+
+### 2. Provide Configuration Details
+
+- Enter S3 credentials.
+
+  <Figure src='/img/docs/sources/s3/source_config.webp' alt='S3 source form with Change data capture (CDC), Connection details, and Additional configuration sections' />
+
+#### Connection details
+
+| Field                      | Description                                                                                                                                 | Example Value |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| S3 Bucket Name `required`  | Name of the S3 bucket that contains the files to sync.                                                                                      | `dz-olake-testing` |
+| AWS Region                 | AWS Region where the bucket exists. Required so OLake Go calls the correct regional S3 endpoint.                                            | `us-east-1` |
+| Access Key ID              | AWS access key ID for authentication. Optional if using IAM roles or instance profiles.                                                     | `<YOUR_KEY>` |
+| Secret Access Key          | AWS secret access key for authentication. Optional if using IAM roles or instance profiles.                                                 | `<YOUR_SECRET>` |
+| Path Prefix                | Optional key prefix to limit discovery and sync to objects under this path.                                                                 | `data/` |
+| Custom Endpoint            | S3 API endpoint URL. Optional for AWS S3; required for S3-compatible storage such as MinIO.                                                 | `https://minio.example.com` |
+| File Pattern               | Regular expression to filter object keys by name.                                                                                           | `.*\.csv$` |
+| File Format `required`     | Format of files in the bucket. OLake Go uses this to determine how to read and process files during sync. Additional format-specific fields appear in this section when applicable. | <ul> <li>`CSV`</li> <li>`JSON`</li> <li>`Parquet`</li> <li>`XML`</li> </ul> |
+| Compression Type           | Compression applied to files in the bucket.                                                                                                 | <ul> <li>`none`</li> <li>`gzip`</li> <li>`zip`</li> </ul> |
+| Delimiter                  | Field separator for CSV files. Shown when **File Format** is `CSV`.                                                                         | `,` |
+| Has Header                 | Whether CSV files include a header row. Shown when **File Format** is `CSV`.                                                                | Enabled |
+| Skip Rows                  | Number of rows to skip at the start of each CSV file. Shown when **File Format** is `CSV`.                                                  | `0` |
+| Quote Character            | Quote character used in CSV files. Shown when **File Format** is `CSV`.                                                                     | `"` |
+
+#### Additional configuration
+
+| Field       | Description                                                                        | Example Value |
+| ----------- | ---------------------------------------------------------------------------------- | ------------- |
+| Retry Count | Number of retry attempts for failures.                                             | `3` |
+| Max Threads | Maximum number of worker threads the connector can spin up for parallel tasks.     | `3` |
+
+:::info[AWS Authentication]
+- **Access Key ID** and **Secret Access Key** are optional for AWS S3. If omitted, the driver uses AWS default credential chain (IAM roles, environment variables, instance profiles, ECS task roles). This is the **recommended approach** for production deployments. If you provide one credential, you must provide both.
+- **Access Key ID**, **Secret Access Key** and **Endpoint** is required for non AWS S3 services.
+:::
+
+### 3. Format-Specific Configuration
+
+<Tabs groupId="file-format">
+
+<TabItem value="csv-format" label="CSV Configuration">
+
+Additional fields for CSV files:
+
+| Field | Description | Default | 
+|-------|-------------|---------|
+| Delimiter | Field separator character | `,` |
+| Has Header | Whether CSV files contain a header row | `true` |
+| Skip Rows | Number of rows to skip at the beginning of CSV files | `0` |
+| Quote Character | Quote character for CSV files | `"` |
+
+**Compression**: Automatically detected from file extension (`.csv.gz` = gzipped)
+
+</TabItem>
+
+<TabItem value="json-format" label="JSON Configuration">
+
+Additional fields for JSON files:
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| Line Delimited | Use line-delimited JSON (JSONL) format instead of JSON array. | `true` |
+
+**Supported Formats**:
+- JSONL (newline-delimited): `{"id": 1}\n{"id": 2}`
+- JSON Array: `[{"id": 1}, {"id": 2}]`
+- Single Object: `{"data": [...]}`
+
+**Compression**: Automatically detected (`.json.gz`, `.jsonl.gz`)
+
+</TabItem>
+
+<TabItem value="parquet-format" label="Parquet Configuration">
+
+Additional fields for Parquet files:
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| Streaming Enabled | Use S3 range requests for memory-efficient streaming (recommended for large files). | `true` |
+
+**Features**:
+- Schema read from Parquet metadata
+- Efficient columnar reading
+- Streaming support for large files
+- Native type preservation
+
+</TabItem>
+
+<TabItem value="xml-format" label="XML Configuration">
+
+Additional fields for XML files:
+
+| Field | Description | Example Value |
+|-------|-------------|---------|
+| Row Identifier | XML tag that encloses each record  | `record` |
+
+</TabItem>
+
+</Tabs>
+
+### 4. Test Connection
+
+- Once the connection is validated, the S3 source is created. Jobs can then be configured using this source
+- In case of connection failure, refer to the [Troubleshooting section](#troubleshooting)
+
+</TabItem>
+
+<TabItem value="olake-cli" label="Use OLake CLI for S3">
+
+### 1. Create Configuration File
+
+    - Once the OLake CLI is setup, create a folder to store configuration files such as `source.json` and `destination.json`.
+
+    The `source.json` file for postgres must contain these mandatory fields.
+
+### 2. Provide Configuration Details
+
+An example `source.json` file will look like this:
+
+<Tabs groupId="s3-platform-cli">
+
+<TabItem value="aws-s3-iam" label="AWS S3 (IAM Role)" default>
+
+<S3SourceConfigIAM />
+
+</TabItem>
+
+<TabItem value="aws-s3-cli" label="AWS S3 (Static Keys)">
+
+<S3SourceConfig />
+
+</TabItem>
+
+</Tabs>
+
+<S3SourceConfigDetails />
+
+:::info[AWS Authentication]
+- **Access Key ID** and **Secret Access Key** are optional for AWS S3. If omitted, the driver uses AWS default credential chain (IAM roles, environment variables, instance profiles, ECS task roles). This is the **recommended approach** for production deployments. If you provide one credential, you must provide both.
+- **Access Key ID**, **Secret Access Key** and **Endpoint** is required for non AWS S3 services.
+:::
+
+### 3. Format-Specific Configuration Examples
+
+<Tabs groupId="file-format-cli">
+
+<TabItem value="csv-cli" label="CSV Format">
+
+<S3SourceConfigCSV />
+
+</TabItem>
+
+<TabItem value="json-cli" label="JSON Format">
+
+<S3SourceConfigJSON />
+
+</TabItem>
+
+<TabItem value="parquet-cli" label="Parquet Format">
+
+<S3SourceConfigParquet />
+
+</TabItem>
+
+<TabItem value="xml-cli" label="XML Format">
+
+<S3SourceConfigXML />
+
+</TabItem>
+
+</Tabs>
+
+### 4. Check Source Connection
+
+To verify the database connection following command needs to be run:
+
+```bash title="check command"
+docker run --pull=always \
+-v "[PATH_OF_CONFIG_FOLDER]:/mnt/config" \
+olakego/source-s3:latest \
+check \
+--config /mnt/config/source.json
+```
+
+- If OLake Go is able to connect with S3 `{"connectionStatus":{"status":"SUCCEEDED"},"type":"CONNECTION_STATUS"}` response is returned.
+
+- In case of connection failure, refer to the [Troubleshooting section](#troubleshooting).
+
+</TabItem>
+
+</Tabs>
+
+---
+
+## Data Type Mapping {/* #data-type-mapping */}
+
+<S3ToIcebergDatatypes />
+
+---
+
+## Date and Time Handling
+
+<DateTimeHandling />
+
+---
+
+## Troubleshooting {/* #troubleshooting */}
+
+### 1. Connection Failed - Access Denied
+
+```logs
+ERROR failed to list objects: AccessDenied: Access Denied
+```
+
+**Cause**: Insufficient IAM permissions or incorrect credentials
+
+**Solution**:
+- **If using static credentials**: Verify access key and secret key are correct
+- **If using IAM roles**: Ensure the IAM role has proper S3 permissions attached
+- Check IAM policy includes:
+  ```json
+  {
+    "Effect": "Allow",
+    "Action": ["s3:ListBucket", "s3:GetObject"],
+    "Resource": [
+      "arn:aws:s3:::bucket-name",
+      "arn:aws:s3:::bucket-name/*"
+    ]
+  }
+  ```
+- **AWS Credential Chain Order**:
+  1. Static credentials in config (access_key_id, secret_access_key)
+  2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  3. IAM role attached to EC2 instance/ECS task
+  4. AWS credentials file (~/.aws/credentials)
+- For MinIO/LocalStack: Ensure credentials match server configuration
+
+### 2. No Streams Discovered
+
+**Cause**: Files not organized in folders or incorrect path_prefix
+
+**Solution**:
+- S3 connector requires folder structure: `bucket/prefix/stream_name/files`
+- Check path_prefix matches your structure
+- Verify file extensions match format (`.csv`, `.json`, `.parquet`)
+- Example command to verify:
+  ```bash
+  aws s3 ls s3://bucket-name/prefix/ --recursive
+  ```
+
+### 3. Schema Inference Failed - CSV
+
+```logs
+ERROR failed to infer schema: invalid delimiter or header configuration
+```
+
+**Cause**: Incorrect CSV configuration
+
+**Solution**:
+- Verify `has_header` matches file (check first row)
+- Check `delimiter` is correct (`,` vs `;` vs `\t`)
+- Ensure all rows have same column count
+- Test with a small sample file first
+
+### 4. JSON Format Not Detected
+
+**Cause**: Mixed JSON formats in same folder or invalid JSON
+
+**Solution**:
+- Keep JSONL and JSON Array formats in separate folders/streams
+- Validate JSON syntax: `jq . < file.json`
+- Ensure consistent field names across records
+- Check for trailing commas or syntax errors
+
+### 5. Parquet File Cannot Be Read
+
+```logs
+ERROR failed to read parquet schema: not a parquet file
+```
+
+**Cause**: Corrupted file or invalid Parquet format
+
+**Solution**:
+- Verify file with parquet-tools: `parquet-tools schema file.parquet`
+- Check file wasn't corrupted during upload
+- Ensure file extension is `.parquet` (not `.pq` or other)
+- Re-upload file from source
+
+### 6. Incremental Sync Not Working
+
+**Cause**: State file not persisted or incorrect sync_mode
+
+**Solution**:
+- Verify `state.json` file location is writable
+- Check catalog has `sync_mode: "incremental"`
+- Ensure `cursor_field: "_last_modified_time"` is set
+- Confirm state file is being passed to sync command:
+  ```bash
+  --state /path/to/state.json
+  ```
+
+### 7. MinIO Connection Timeout
+
+```logs
+ERROR dial tcp: i/o timeout
+```
+
+**Cause**: Network connectivity or incorrect endpoint
+
+**Solution**:
+- Check MinIO is running: `docker ps | grep minio`
+- Test endpoint: `curl http://localhost:9000/minio/health/live`
+- Verify endpoint format: `http://hostname:9000` (include protocol)
+- For Docker: Use container name instead of localhost
+
+### 8. Files Not Syncing Despite Being Present
+
+**Cause**: File extension mismatch or compression not detected
+
+**Solution**:
+- Ensure file extensions match format:
+  - CSV: `.csv` or `.csv.gz`
+  - JSON: `.json`, `.jsonl`, `.json.gz`, `.jsonl.gz`
+  - Parquet: `.parquet`
+- Check file size is non-zero: `aws s3 ls s3://bucket/prefix/ --recursive --human-readable`
+- Verify files are in correct folder structure
+
+### 9. Out of Memory Errors
+
+```logs
+FATAL runtime: out of memory
+```
+
+**Cause**: Too many large files processed concurrently
+
+**Solution**:
+- Reduce `max_threads` in configuration (try 3-5)
+- Process fewer streams at once
+- Split very large files (>5GB) before upload
+- Increase container memory limits
+
+### 10. Permission Denied - LocalStack
+
+**Cause**: LocalStack IAM policy simulator
+
+**Solution**:
+- LocalStack accepts any credentials by default (`test`/`test`)
+- Ensure endpoint is correct: `http://localhost:4566`
+- Check LocalStack is running: `docker ps | grep localstack`
+- Verify bucket exists: `awslocal s3 ls`
+
+**If the issue is not listed here, post the query on Slack to get it resolved within a few hours.**
+
+---
+
+## Changelog
+
+| Date of Release | Version | Description |
+| --------------- | ------- | ----------- |
+| TBD | v0.4.0 | Initial S3 source connector release |
+
+---

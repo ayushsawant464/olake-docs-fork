@@ -1,0 +1,16 @@
+```json title="destination.json"
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "catalog_name": "olake_iceberg",
+    "rest_catalog_url": "http://<REST_ENDPOINT>:8181",         
+    "iceberg_s3_path": "s3://<BUCKET_NAME>",              
+    "s3_endpoint": "http://<S3_ENDPOINT>:9090",            
+    "aws_region": "<AWS_REGION>",
+    "aws_access_key": "<AWS_ACCESS_KEY>",
+    "aws_secret_key": "<AWS_SECRET_KEY>",
+    "arrow_writes": false
+  }
+}
+```

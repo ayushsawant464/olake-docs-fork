@@ -1,0 +1,89 @@
+name: Sync Docs & Update Vercel Bot
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - 'docs/**'
+      - 'harness/**'
+      - 'vercel-app/**'
+      - '.github/workflows/sync-docs.yml'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  schedule:
+    - cron: '0 4 * * *' # Daily sync at 04:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-test:
+    name: Sync Docs and Verify Index
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check & Pull Upstream Docs (Schedule/Dispatch only)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git remote add upstream https://github.com/datazip-inc/olake-docs.git 2>/dev/null || true
+          git fetch upstream master || true
+          git merge upstream/master --no-edit -m "chore: sync upstream olake-docs" || true
+
+      - name: Sync docs & harness into vercel-app
+        run: |
+          echo "Syncing docs/ to vercel-app/docs/..."
+          rm -rf vercel-app/docs
+          cp -r docs vercel-app/docs
+
+          if [ -d "harness" ]; then
+            echo "Syncing harness/ to vercel-app/harness/..."
+            rm -rf vercel-app/harness
+            cp -r harness vercel-app/harness
+          fi
+
+      - name: Smoke Test Search Engine Indexer
+        run: |
+          python3 -c "
+          import sys
+          sys.path.insert(0, 'vercel-app')
+          from api.docs_engine import ServerlessDocsMemory
+          mem = ServerlessDocsMemory('vercel-app/docs')
+          print(f'✅ Successfully indexed {len(mem.docs)} documentation files.')
+          assert len(mem.docs) > 0, 'Docs indexing failed: 0 docs found'
+
+          res = mem.search_docs('postgres iceberg cdc')
+          assert len(res) > 0, 'Search query returned no results'
+          print(f'✅ Search test passed: top match is {res[0][\"path\"]}')
+          "
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add vercel-app/docs vercel-app/harness
+          if git diff --staged --quiet; then
+            echo "No changes in vercel-app docs or harness to commit."
+          else
+            git commit -m "chore(sync): update vercel-app docs and harness [skip ci]"
+            git push origin HEAD
+            echo "✅ Pushed updated docs to repository. Vercel auto-deployment will trigger."
+          fi
+
+      - name: Trigger Vercel Deploy Hook (Optional)
+        if: env.VERCEL_DEPLOY_HOOK != ''
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          curl -s -X POST "$VERCEL_DEPLOY_HOOK"
+          echo "Triggered Vercel Deploy Hook successfully."

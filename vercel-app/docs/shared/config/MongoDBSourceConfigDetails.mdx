@@ -1,0 +1,14 @@
+| Field               | Description                                                 | Example Value           | Data Type |
+|---------------------|-------------------------------------------------------------|-------------------------| ---- |
+| `hosts`            | List of MongoDB hosts. Use DNS SRV if `srv` = `true`.       | `x.xxx.xxx.120:27017`, `x.xxx.xxx.120:27017`, `x.xxx.xxx.133:27017`  (can be multiple)     | []STRING  |
+| `username/password`| Credentials for MongoDB authentication.                     | `"test"/"test"`        | STRING |
+| `authdb`           | Authentication database (often `admin`).                    | `"admin"`              | STRING |
+| `replica_set`      | Name of the replica set, if applicable.                     | `"rs0"`                | STRING |
+| `read_preference`  | Which node to read from (e.g., `secondaryPreferred`).       | `"secondaryPreferred"` |STRING |
+| `srv`              | If using DNS SRV connection strings, set to `true`. When `true`, there can only be 1 host in `hosts` field. <br/> if `true`, the `hosts` key will have a value something like `["mongodatatest.pigiy.mongodb.net"]`      | `true`, `false`         | BOOL
+| `database`         | The MongoDB database name to replicate.                     | `"database_name"`           | STRING |
+| `max_threads`      | Maximum parallel threads for chunk-based snapshotting.      | `5`                   | INT |
+| `backoff_retry_count`     | Retries attempt to establish sync again if it fails, increases exponentially ( in minutes - 1, 2,4,8,16... depending upon the `backoff_retry_count` value)            |   defaults to 3, takes default value if set to `-1`            | INT |
+| `chunking_strategy`                  |  The chunking strategy for backfill               |   `timestamp`, uses `splitVector` strategy if the field is left empty. Refer [here](/blog/what-makes-olake-fast#mongodb) for more details.          | |
+
+[Refer here](https://github.com/datazip-inc/olake/blob/master/types/sync_mode.go) for more about sync modes.

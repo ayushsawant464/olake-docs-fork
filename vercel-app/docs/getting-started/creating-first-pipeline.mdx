@@ -1,0 +1,236 @@
+---
+title: "Create Your First Data Pipeline | OLake Getting Started Guide"
+seo_title: "Create Your First OLake Data Pipeline"
+description: Step-by-step tutorial to create a data replication job in OLake, configuring source, destination, streams, and scheduling for seamless sync.
+sidebar_label: Configure Your First Ingestion Job
+sidebar_position: 3
+---
+
+# Get Started With First Ingestion Job!
+
+This guide is for end-users who want to replicate data between the various sources and destinations that OLake Go supports. Using the OLake UI, you can configure a **source**, set up a **destination**, and create a **job** to move data between them.
+
+By the end of this tutorial, you’ll have a complete replication workflow running in OLake Go.
+
+## Prerequisites
+
+Follow the [Quickstart Setup Guide](/docs/getting-started/quickstart) to ensure the [OLake UI](/docs/install/olake-ui/) is running at [localhost:8000](http://localhost:8000)
+
+### What is a Job?
+
+A job in OLake Go is a pipeline that defines how data should be synchronized from a **source** (where your data comes from) to a **destination** (where your data goes).
+
+### Two ways to create a Job
+
+#### 1. Job-first workflow:
+
+Start from the **Jobs** page and set up everything in one flow.
+
+1. Go to **Jobs** in the left menu and click **Create Job**.
+1. Configure **job name & schedule**
+1. If the **source** is already configured select the source connector and existing source. Otherwise, configure a new **source**.
+1. If the **destination** is already configured select the destination connector and existing destination. Otherwise, configure a new **destination**.
+1. Configure streams and save.
+
+#### 2. Resource-first workflow:
+
+Set up your source and destination first, then link them in a job.
+
+1. Create a source from the **Sources** page.
+1. Create a destination from the **Destinations** page.
+1. Go to **Jobs → Create Job**, and Configure job name & schedule
+1. select the existing source and destination.
+1. Configure streams and save.
+
+:::tip
+- The two methods achieve the same result. Choose **Job-first** if you want a guided setup in one go. Choose **Resource-first** if your source and destination are already configured, or if you prefer to prepare them in advance.
+- If you don't have a source or destination set up yet but still want to try OLake, head over to the [OLake Playground](/docs/getting-started/playground/) for a ready to use sandbox environment.
+:::
+
+## Tutorial: Creating a Job
+
+In this guide, we'll use the **Resource-first workflow** to set up a job from configuring the source and destination to running it. 
+
+First things first, every job needs a source and a destination before it can run.
+For this demonstration, we'll use [**Postgres**](/docs/connectors/postgres) as the source and [**Apache Iceberg**](/blog/why-iceberg) with [**Glue Catalog**](/docs/writers/iceberg/catalog/glue/) as the destination.
+
+Let's get started!
+
+### 1. Create a New Source
+
+Navigate to **Sources** section and select **+ Create Source** button in the top right corner. 
+
+![Olake create source](../../static/img/docs/getting-started/create-your-first-job/create-source.webp)
+
+### 2. Configure Source
+
+For this guide, choose **Postgres** from the connector dropdown, and keep the **OLake Go version** set to the latest stable version.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-source-connector.webp' alt='Job source creation' width='80%' />
+
+Give your source a descriptive name, then fill in the required Postgres connection details in the Endpoint Config form.
+
+<Figure src='/img/docs/sources/postgres/postgres-config.webp' alt='Job source creation'  />
+
+Once the test connection succeeds, OLake Go shows a success message, and by clicking on destinations button it takes you to the destination configuration step.
+
+You can find the configuration and troubleshooting guides for all supported source connectors below.
+
+| Sources  | Config                                            |
+| -------- | ------------------------------------------------- |
+| MySQL    | [Config](/docs/connectors/mysql#configuration)    |
+| Postgres | [Config](/docs/connectors/postgres#configuration) |
+| MongoDB  | [Config](/docs/connectors/mongodb#configuration)  |
+| Oracle   | [Config](/docs/connectors/oracle#configuration)   |
+| MSSQL    | [Config](/docs/connectors/mssql#configuration)    |
+| Kafka    | [Config](/docs/connectors/kafka#configuration)    |
+| DB2 LUW  | [Config](/docs/connectors/db2#configuration)    |
+| S3       | [Config](/docs/connectors/s3#configuration)    |
+
+:::note
+If you plan to enable CDC (Change Data Capture), make sure a replication slot already exists on your Postgres database.
+You can learn how to check or create one in our [Replication Slot Guide](/docs/connectors/postgres/setup/generic).
+:::
+
+### 3. Create a New Destination
+
+Navigate to **Destination** section and select **+ Create Destination** button in the top right corner. 
+
+![Olake create destination](../../static/img/docs/getting-started/create-your-first-job/create-dest.webp)
+
+### 4. Configure Destination
+
+Similarly, here we'll be using **Iceberg** with **AWS Glue Catalog** as the destination.
+
+For this guide, select **Apache Iceberg** from the connector dropdown, and keep the **OLake Go version** set to the latest stable version.
+
+![Job destination creation](../../static/img/docs/getting-started/create-your-first-job/job-dest-connector.webp)
+
+Choose the catalog as **AWS Glue** from the Catalog Type dropdown.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-dest-catalog.webp' alt='Job destination catalog' width='80%' />
+
+Give your destination a descriptive name, then fill in the required connection details in the Endpoint Config form.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-dest-config.webp' alt='Job destination config' width='80%' />
+
+Once the test connection succeeds, OLake Go shows a success message and by clicking on create job button it takes you to the job configuration step. 
+
+You can find the configuration and troubleshooting guides for all supported destination connectors below.
+
+- **Parquet S3**
+  | Destinations | Config |
+  |------------------|----------------------------------------------------------------------|
+  | Parquet | [Config](/docs/writers/parquet/config) |
+
+- **Iceberg**
+  | Catalogs | Config |
+  |------------------|-------------------------------------------------------------------------------------|
+  | AWS Glue Catalog | [Config](/docs/writers/iceberg/catalog/glue#configuration) |
+  | Hive Catalog | [Config](/docs/writers/iceberg/catalog/hive#configuration) |  
+  | JDBC Catalog | [Config](/docs/writers/iceberg/catalog/jdbc#configuration) |
+  | REST Catalog | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=generic#configuration) |
+  | Nessie Catalog | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=nessie#configuration-2) |
+  | LakeKeeper | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=lakekeeper#configuration-1) |
+  | S3 Tables | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=s3-tables#configuration-3) |
+  | Polaris | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=polaris#configuration-5) |
+  | Unity | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=unity#configuration-4) |
+  | BigLake | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=biglake#configuration-6) |
+  | Horizon | [Config](/docs/writers/iceberg/catalog/rest?rest-catalog=horizon#configuration-7) |
+
+### 5. Create a New Job
+
+Navigate to **Jobs** section and select **+ Create Job** button in the top right corner. 
+
+![Olake create Job](../../static/img/docs/getting-started/create-your-first-job/create-job.webp)
+
+### 6. Configure Job 
+
+Give your job a descriptive name. For this guide, set the **Frequency** dropdown to **Every Minute**.
+
+Next we have to select the source and destination that we created in the previous steps. First we need to select the **source connector** from the dropdown and then select the **source**. Similarly for the destination we have to select the **destination connector** from the dropdown and then select the **destination**.
+
+In **Advanced Settings**, you can optionally select a **Target Query Engine**. This filters the delete format options shown in the Streams page to only those supported by your chosen query engine. To learn more about Target Query Engine, refer to the [Target Query Engine](/docs/getting-started/job-level-properties/#target-query-engines) section.
+
+Once you have selected the source and destination, click on the **Next** button to continue. At this stage, the system validates both configurations. You can proceed to the Streams section only after both validations succeed and a success status is displayed.
+
+![Olake Job Configuration](../../static/img/docs/getting-started/create-your-first-job/select-source-dest.webp)
+
+### 7. Configure Streams
+
+The **Streams** page is where you select which streams to replicate to the destination and configure stream-level properties for each selected stream. For more details, please check the [Stream Properties](/docs/understanding/terminologies/olake/#streams-properties).
+Here, you can choose your preferred [sync mode](/docs/understanding/terminologies/olake#2-sync-modes) and configure [partitioning](/docs/writers/parquet/partitioning) and [Destination Database](/docs/understanding/terminologies/olake/#destination-database) as well as other stream-level settings here.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-streams.webp' alt='OLake streams selection, employee_data and other tables checked, sync mode set to Full Refresh + CDC' width='80%' />
+
+For this guide, we'll configure the following:
+
+- Replicate the `employees` stream (name of the table).
+- Use [**Full Refresh + CDC**](/docs/understanding/terminologies/olake/#2-sync-modes) as the sync mode.
+- Enable **data Normalization**.
+- For the ingestion mode, select **Upsert** and choose **Equality Deletes**/**Position Deletes**/**Deletion Vectors** as the upsert type. See [Upsert](/docs/understanding/terminologies/olake/#upsert) for what Upsert does and how the delete formats differ.
+    :::important[Upsert Type Changes]
+    - Switching from **equality deletes** to **positional deletes** or **deletion vectors** on existing jobs is supported. Subsequent syncs use the new format, and OLake Go builds indexes to migrate existing equality delete files to the new format. 
+    - Switching from **deletion vector** to **equality/positional deletes** and vice versa on existing jobs will trigger **clear destination** operation because this is an Iceberg version downgrade (v3 to v2).
+    :::
+- Modify Destination Database name (if required).
+- Replicate only data where `id` >= `10` (basically replicate data of employees with id 10 and above).
+- Partition the data by the **company** extracted from a string column in the selected stream.
+- Run the sync every day at 12:00 AM.
+
+Let's start by selecting the `employees` stream (or any stream from your source) by checking its checkbox to include it in the replication.
+Click the stream name to open the stream-level settings panel on the right side.
+In the panel, set the **sync mode** to [**Full Refresh + CDC**](/docs/understanding/terminologies/olake/#2-sync-modes), and enable **Normalization** by toggling the switch on.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-stream-select.webp' alt='Job streams selection' width='80%' />
+
+To learn more about sync modes, refer to our [Sync Modes Guide](/docs/understanding/terminologies/olake#2-sync-modes) in the documentation.
+
+To partition the data, click the **Partitioning** tab and configure it based on the required details.
+In our case, the `employees` stream has a string column named `company`, which we will partition by **company**. Learn more about partitioning in the [Partitioning Guide](/docs/writers/parquet/partitioning).
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-stream-partition.webp' alt='Job stream partitioning' width='80%' />
+
+To replicate only data of employees having id 10 and above, we'll use a **Data Filter** to filter the data based on the `id` column.
+Make sure the **Value** provided is in the same format as the column schema.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-data-filter.webp' alt='Job stream data filter' width='80%' />
+
+:::note[Only for CLI]
+Introduced support for filtering columns with special characters in CLI. Column names with underscores work normally without any escape sequence. For column names with other special characters, use the following format:
+```text
+filter = "\"id-with#special!char\" = 1"
+```
+:::
+
+To edit the **Destination Database** name, select the edit icon beside the [Destination Database](/docs/understanding/terminologies/olake/#destination-database) (Iceberg DB or S3 Folder) and make the changes.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-streams-destination-db.webp' alt='Job stream Destination DB' width='80%' />
+
+Once configured, click **Create Job** in the bottom-right corner. Tada! you've successfully created your first job!
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-creation-success.webp' alt='Job create' width='80%' />
+
+The sync will start at the next scheduled time. You can also start it manually by going to the **Jobs** section, finding your job, clicking the options menu, and selecting **Sync Now**.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-sync-now.webp' alt='OLake jobs dashboard with actions menu for sync, edit streams, pause, logs, settings, delete' width='80%' />
+
+You can verify the sync status by checking the last run status column. Possible statuses include **Running**, **Failed**, and **Completed**.
+You can also monitor the sync logs by selecting [**Job Logs and History**](/docs/getting-started/job-level-properties/#9-job-logs--history) from the job options menu.
+
+- Job running:
+  ![OLake jobs dashboard showing active job status as running for Postgres to Iceberg pipeline](../../static/img/docs/getting-started/create-your-first-job/job-running.webp)
+
+- Job completed:
+  ![OLake jobs dashboard showing completed status for Postgres to Iceberg pipeline job](../../static/img/docs/getting-started/create-your-first-job/job-success.webp)
+
+Yay! The sync is complete, and our data has been replicated to Iceberg exactly as we configured it.
+
+<Figure src='/img/docs/getting-started/create-your-first-job/job-data-s3.webp' alt='Amazon S3 browser showing parquet files for dropoff_datetime_year=2011 partition folder' width='80%' />
+
+### 8. Manage Your Job
+
+Once your job is created, you can manage it from the **Jobs** page using the **Actions** menu **(⋮)**
+
+To know more about job level features, refer to the [Job Level Features](/docs/getting-started/job-level-properties) guide.
+

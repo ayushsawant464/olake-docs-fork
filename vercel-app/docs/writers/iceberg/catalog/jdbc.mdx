@@ -1,0 +1,252 @@
+---
+title: "OLake Iceberg JDBC Catalog | Setup, Configuration & Troubleshooting"
+seo_title: "OLake Iceberg JDBC Catalog Setup and Configuration"
+description: Configure OLake destination with Apache Iceberg JDBC Catalog. Learn prerequisites, connection parameters, local setup, and common troubleshooting tips.
+sidebar_label: 3. JDBC/SQL
+sidebar_position: 3
+---
+
+
+# JDBC/SQL Catalog Write Guide
+
+OLake Go integrates with **JDBC/SQL catalogs** (such as PostgreSQL, MySQL, etc.) to provide full support for **Apache Iceberg tables**.
+
+With this setup:
+- **Data** is stored in object storage (S3, MinIO, or any S3-compatible system).
+- **Metadata** is managed in a relational database (via JDBC).
+- **OLake Go** seamlessly writes into Iceberg tables using JDBC + object storage.
+
+---
+
+## Prerequisites
+
+Before configuring OLake Go with JDBC Catalog, ensure the following:
+
+### 1. Relational Database
+
+- A JDBC-supported database (such as PostgreSQL or MySQL) will serve as the Iceberg metadata catalog.
+
+### Required Database Permissions
+
+The JDBC catalog user must have sufficient privileges to manage Iceberg metadata tables. OLake Go requires the following database permissions:
+
+> **CREATE TABLE** - Creates Iceberg catalog metadata tables (`iceberg_tables`, `iceberg_namespace_properties`, etc.) on first connection
+>
+> **INSERT** - Adds new table metadata entries, namespace registrations, and commit history records to catalog tables
+>
+> **UPDATE** - Modifies existing table metadata during schema evolution, partition updates, and table property changes
+>
+> **DELETE** - Removes obsolete metadata entries when tables are dropped or during catalog maintenance operations
+>
+> **SELECT** - Reads metadata for table discovery, schema validation, and query planning operations
+
+:::info[Database Setup]
+For detailed database-specific setup instructions and advanced permission configurations, refer to the [**Apache Iceberg JDBC Catalog documentation**](https://iceberg.apache.org/docs/latest/jdbc/).
+:::
+
+### 2. Object Storage
+
+- A bucket for storing **Iceberg data files (Parquet + metadata)**.
+
+---
+
+## Configuration {/* #configuration */}
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import JDBCIcebergWriterUIConfigDetails from '@site/docs/shared/config/JDBCIcebergWriterUIConfigDetails.mdx';
+import JDBCIcebergWriterCLIConfigDetails from '@site/docs/shared/config/JDBCIcebergWriterCLIConfigDetails.mdx';
+
+<Tabs queryString="tab" groupId="jdbc-config-type">
+<TabItem value="jdbc-ui" label="OLake UI" default>
+<br/>
+
+![JDBC endpoint config with fields for JDBC, S3 path, AWS keys, and region](/img/docs/iceberg/jdbc/jdbc_ui.webp)
+
+<JDBCIcebergWriterUIConfigDetails/>
+
+:::note[Catalog Name Supported for v0.3.5 and above]
+For the **catalog name**, OLake Go only supports lowercase letters and underscores. Spaces and special characters are not supported.
+:::
+
+Click **`Create ->`** to test the connection and verify that OLake Go can validate both the JDBC catalog connection and S3 compatible object storage access.
+
+</TabItem>
+
+<TabItem value="jdbc-cli" label="OLake CLI">
+
+Create a `destination.json` with the following configuration:
+
+```json title="destination.json"
+{
+     "type": "ICEBERG",
+     "writer": {
+          "catalog_type": "jdbc",
+          "jdbc_url": "jdbc:postgresql://<DB_URL>:5432/iceberg",
+          "catalog_name": "olake_iceberg",
+          "jdbc_username": "<USERNAME>",
+          "jdbc_password": "<PASSWORD>",
+          "iceberg_s3_path": "s3://<BUCKET_NAME>",
+          "s3_endpoint": "https://<S3_ENDPOINT>",
+          "s3_use_ssl": false,
+          "s3_path_style": true,
+          "aws_access_key": "<AWS_ACCESS_KEY>",
+          "aws_region": "<AWS_REGION>",
+          "aws_secret_key": "<AWS_SECRET_KEY>",
+          "arrow_writes": false
+     }
+}
+```
+
+<JDBCIcebergWriterCLIConfigDetails/>
+
+:::note[Catalog Name Supported for v0.3.5 and above]
+For the **catalog name**, OLake Go only supports lowercase letters and underscores. Spaces and special characters are not supported.
+:::
+
+</TabItem>
+</Tabs>
+
+:::tip[Connection Testing]
+OLake Go automatically validates:
+
+* JDBC connectivity & authentication
+* Object storage access (S3/MinIO)
+* Database creation & access permissions
+:::
+
+---
+
+### Local Development Setup
+
+Here's an example `docker-compose.yml` for OLake Go with **PostgreSQL JDBC Catalog + MinIO**:
+
+```yml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: iceberg-postgres
+    environment:
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: iceberg
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "iceberg", "-d", "iceberg"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - ./data/postgres-data:/var/lib/postgresql/data
+    networks:
+      - iceberg_net
+
+  minio:
+    image: olakego/minio:RELEASE.2025-04-03T14-56-28Z
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=minio
+    networks:
+      iceberg_net:
+        aliases:
+          - warehouse.minio
+    ports:
+      - 9001:9001
+      - 9000:9000
+    volumes:
+      - ./data/minio-data:/data
+    command: [ "server", "/data", "--console-address", ":9001" ]
+
+  mc:
+    depends_on:
+      - minio
+    image: olakego/mc:RELEASE.2025-04-03T17-07-56Z
+    container_name: mc
+    networks:
+      iceberg_net:
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    entrypoint: |
+      /bin/sh -c "
+      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      if ! /usr/bin/mc ls minio/warehouse > /dev/null 2>&1; then
+        /usr/bin/mc mb minio/warehouse;
+        /usr/bin/mc policy set public minio/warehouse;
+      fi;
+      tail -f /dev/null
+      "
+
+networks:
+  iceberg_net:
+    name: iceberg_net
+
+volumes:
+  postgres-data:
+  minio-data:
+```
+
+---
+
+## Troubleshooting
+
+The OLake Go JDBC Catalog connector stops immediately upon encountering errors to ensure data accuracy. Below are common issues and their fixes:
+
+- <span >Connection Refused to Host:Port</span>
+  - Cause: JDBC database not accessible or network connectivity issues.
+  - Fix:
+    - Verify database is running and accessible:
+      ```bash
+      psql -h <host> -p <port> -U <username> -d <database>
+      ```
+    - Check `jdbc_url` format and port configuration.
+    - Use `host.docker.internal` instead of `localhost` when running in Docker.
+    - Ensure database accepts connections from OLake's IP address.
+
+- <span >Authentication Failed for User</span>
+  - Cause: Invalid database credentials or insufficient user permissions.
+  - Fix:
+    - Verify `jdbc_username` and `jdbc_password` are correct.
+    - Ensure user exists in the database and has required permissions:
+      ```sql
+      GRANT CREATE, INSERT, UPDATE, DELETE, SELECT ON DATABASE <database_name> TO <username>;
+      ```
+
+- <span >SSL Connection Error</span>
+  - Cause: SSL/TLS configuration mismatch between client and server.
+  - Fix:
+    - For S3: Ensure `s3_use_ssl` matches endpoint protocol (http/https).
+    - For JDBC: Add SSL parameters to jdbc_url for non-SSL databases:
+      ```json
+      "jdbc_url": "jdbc:postgresql://<host>:<port>/<database>?sslmode=disable"
+      ```
+
+- <span >NoSuchBucket Error</span>
+  - Cause: S3 bucket specified in configuration doesn't exist.
+  - Fix:
+    - Create the bucket specified in `iceberg_s3_path`:
+      ```bash
+      mc mb <alias>/<bucket_name>
+      ```
+    - Verify bucket name matches exactly (case-sensitive).
+    - Ensure bucket is in the correct region.
+
+- <span >Table Already Exists Error</span>
+  - Cause: Iceberg metadata table conflicts in the catalog database.
+  - Fix:
+    - Drop existing tables if safe to do so.
+    - Use different `iceberg_db` name in configuration.
+    - Clear existing metadata tables manually if needed.
+
+- <span >Path Style Access Error</span>
+  - Cause: S3 addressing configuration issue with MinIO or non-AWS S3.
+  - Fix:
+    - Set `s3_path_style: true` for MinIO and non-AWS S3 services.
+    - Use correct endpoint format without bucket name in the URL.

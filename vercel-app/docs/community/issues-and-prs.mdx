@@ -1,0 +1,151 @@
+---
+title: "Issues & Pull Requests Guide | OLake Contributor Docs"
+seo_title: "Raise an Issue or Pull Request for OLake"
+description: "How to raise an issue or pull request for OLake Go: fork and clone the repo, branch from staging, run pre-commit checks, commit and request review."
+sidebar_label: How to Raise a PR
+sidebar_position: 3
+---
+
+## General Guidelines
+
+Please read through this document before submitting any issues or pull requests to ensure we have all the necessary information to effectively respond to your bug report or contribution.
+
+
+:::warning
+
+- All contributions must target the OLake Go [staging branch](https://github.com/datazip-inc/olake/tree/staging). Create feature branches from staging and open PRs against staging.
+
+:::
+
+## Steps to raise a PR
+
+### 1. Fork the repo
+
+#### To contribute, start by creating a fork of this repository.
+- Go to [datazip-inc/olake](https://github.com/datazip-inc/olake).
+- Click Fork → Create fork.
+
+![Fork The Repo](/img/community/how-to-raise-a-pr/fork-repo.webp)
+
+### 2. Clone your forked repo
+
+After forking, you'll need to clone your fork (not the original repository) and set up the upstream remote:
+
+```bash
+# Clone your fork
+git clone git@github.com:<YOUR-USERNAME>/olake.git
+cd olake
+
+# Add the original repository as upstream
+git remote add upstream git@github.com:datazip-inc/olake.git
+
+# Verify remotes
+git remote -v
+```
+
+> Replace `<YOUR-USERNAME>` with your GitHub username
+
+Your remotes should look like this:
+- `origin` points to your fork (`git@github.com:<YOUR-USERNAME>/olake.git`)
+- `upstream` points to the original repository (`git@github.com:datazip-inc/olake.git`)
+
+### 3. Create a Pull Request
+
+#### Make A Branch
+- Please create a separate branch for each issue that you're working on. Always checkout the `staging` branch first, and create your feature/fix branch from there.
+
+```bash
+git checkout staging
+git checkout -b <BRANCH_NAME>
+```
+
+To check your current branch,
+
+```bash
+git branch
+```
+
+To get back to an existing branch
+
+```bash
+git checkout <EXISTING_BRANCH_NAME> 
+```
+
+or
+
+```bash
+git switch <EXISTING_BRANCH_NAME> 
+```
+
+### 4. Add, verify and push changes
+
+#### 1. Run pre-commits (usually for checks and validations before commiting):
+
+```bash
+make pre-commit
+```
+
+#### 2. Add your changes
+
+```bash
+git add . 
+```
+
+#### 3. verify
+
+Perform `git status` or `git diff` to see what all changes occured, which all files are ready to be committed (or staged)
+
+#### 4. Commit your changes
+
+After you are done with all the changes, perform
+
+```bash
+git commit -am "write a descriptive message here about the nature of changes / addition of code"
+```
+
+Next, take a pull (in case any new code has been added, this will help you avoid merge conflicts) by doing `git pull` and then `git push origin <YOUR_FEATURE_BRANCH_NAME>`.
+
+**Push Your Code ASAP**
+- Push your code as soon as you can. Follow the "early and often" rule.
+- Make a pull request as soon as you can and mark the title with a "[WIP]". You can create a draft pull request.
+
+**Describe Your Pull Request**
+- Use the format specified in pull request template for the repository. Populate the pull request description completely for maximum verbosity.
+  - Tag the actual issue number by replacing #[issue_number] e.g. #42. This closes the issue when your PR is merged.
+  - Tag the actual issue author by replacing @[author] e.g. @issue_author. This brings the reporter of the issue into the conversation.
+  - Mark the tasks off your checklist by adding an x in the [ ] e.g. [x]. This checks off the boxes in your to-do list. The more boxes you check, the better.
+- Describe your change in detail. Too much detail is better than too little.
+- Describe how you tested your change.
+- Check the Preview tab to make sure the Markdown is correctly rendered and that all tags and references are linked. If not, go back and edit the Markdown.
+
+### 5. Attach a validation video
+
+For every pull request, please record and attach a short video demo of your change. This helps reviewers quickly understand the behavior and verify that it works end-to-end with OLake Go, and also ensures contributors actually run OLake Go with their changes.
+
+Your video should:
+
+- Quickly walk through the relevant code changes. 
+- Execute a sync using OLake Go that exercises those changes.
+- Highlight logs or UI views confirming that the run completes successfully.
+
+**PRs without a validation video will not be reviewed!**
+
+### Request Review
+- Once your PR is ready, remove the "[WIP]" from the title and/or change it from a draft PR to a regular PR.
+- If a specific reviewer is not assigned automatically, please request a review from the project maintainer.
+
+:::warning[Avoid Force Pushes]
+When a pull request is under review, please avoid using force push as it makes it difficult for reviewers to track changes. If you need to keep your branch up to date with the staging branch, use `git merge` instead of force push.
+:::
+
+## Conventions to follow when submitting Commits and Pull Request(s).
+
+We try to follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), more specifically the commits and PRs **should have type specifiers** prefixed in the name. [This](https://www.conventionalcommits.org/en/v1.0.0/#specification) should give you a better idea.
+
+e.g. If you are submitting a fix for an issue in frontend, the PR name should be prefixed with **`fix(FE):`**
+
+- Follow [GitHub Flow](https://guides.github.com/introduction/flow/) guidelines for your contribution flows.
+
+- Feel free to ping us on `#contributing-to-olake` on our slack community if you need any help.
+
+

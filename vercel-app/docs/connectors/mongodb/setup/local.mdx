@@ -1,0 +1,486 @@
+---
+title: "Local MongoDB Replica Set Setup with Docker Compose | OLake Guide"
+seo_title: "Local MongoDB Replica Set with Docker Compose"
+description: Learn to set up a local MongoDB replica set using Docker Compose for OLake data sync. Includes keyfile auth, sample data loading, and troubleshooting.
+sidebar_label: Local
+sidebar_position: 6
+---
+
+# Setup MongoDB Replica Set via Docker Compose (Local)
+This guide explains how to spawn a MongoDB replica set using Docker Compose. It also covers instructions for ingesting sample data, and verifying the setup.
+
+:::note
+This compose file is not for production use. It is meant for local development and testing purposes only. It spawns a single MongoDB instance with a replica set configuration. For production use, consider using a more robust setup with multiple nodes and proper security configurations. 
+:::
+
+
+
+Navigate to `./drivers/mongodb/config` (if building locally) OR just create a directory (say `OLAKE_DIRECTORY`) anywhere in your system if you want to use Dockerzied OLake and create these files:
+1. `docker-compose.yml`
+2. `source.json`
+3. `destination.json` -> Refer the [additional-references](#additional-references) for details on destination file config.
+
+<video autoPlay loop muted playsInline controls preload="metadata" aria-label="Screen recording: running the discover and sync commands with Docker Compose" style={{ width: '100%' }}>
+  <source src="/videos/docker-compose-discover-sync.mp4" type="video/mp4" />
+</video>
+
+<Tabs>
+
+<TabItem value="docker" label="Using Dockerized OLake" default>
+
+## 1. Starting `docker-compose.yml` for syncing Data with Dockerized OLake
+
+This compose file does the following:
+- **MongoDB Keyfile Generation**: Generates a keyfile for MongoDB authentication.
+- **MongoDB Primary Node**: Sets up a primary MongoDB instance with a replica set configuration.
+- **Data Loader**: Loads sample Reddit data into the MongoDB instance.
+- **Network and Volume Configuration**: Defines a network for inter-container communication and a volume for persistent storage of the keyfile.
+- **Health Checks**: Implements health checks to ensure MongoDB is running and accessible.
+- **Service Dependencies**: Ensures that the data loader waits for the MongoDB instance to be healthy before starting.
+- **Custom Entry Points**: Uses custom entry points for the data loader to ensure it waits for the MongoDB instance to be ready before attempting to load data.
+
+:::info
+The `host.docker.internal` is used to refer to the host machine from within the Docker container. This is useful for connecting to services running on the host from within a container. If running on the local machine then replace `host.docker.internal` with `localhost`.
+:::
+
+```yaml title="docker-compose.yml"
+# Define the services that will run as containers, the networks they use, and shared volumes.
+services:
+  # Service to initialize the MongoDB keyfile.
+  init-keyfile:
+    image: mongo:8.0                                 # Use MongoDB version 8.0 as the base image.
+    container_name: init_keyfile                     # Explicit container name for easier identification.
+    command: >                                       # Execute a shell command on container startup.
+      sh -c "
+      # Check if the keyfile does not already exist.
+      if [ ! -f /etc/mongodb/pki/keyfile ]; then
+        echo 'Generating keyfile...';
+        # Generate a random keyfile using OpenSSL with base64 encoding and save it to the expected location.
+        # Then set the file permission to read-only (400) for security.
+        openssl rand -base64 756 > /etc/mongodb/pki/keyfile && chmod 400 /etc/mongodb/pki/keyfile;
+      else
+        # If the keyfile already exists, output a message.
+        echo 'Keyfile already exists.';
+      fi
+      "
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
+    networks:
+      - mongo-cluster                                 # Connect this container to the defined mongo-cluster network.
+    restart: "no"                                     # This container should not restart automatically.
+
+  # Primary MongoDB container that sets up a replica set and creates an admin user.
+  primary_mongo:
+    container_name: primary_mongo                     # Set an explicit name for the primary MongoDB container.
+    image: mongo:8.0                                  # Use MongoDB version 8.0 as the container image.
+    hostname: primary_mongo                           # Set the hostname within the container network.
+    ports:
+      - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+    depends_on:
+      - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume to share the generated keyfile.
+    command: |                                        # Execute a series of shell commands using a multi-line script.
+      bash -c '
+      echo "Waiting for keyfile..."
+      # Wait until the keyfile is available before proceeding.
+      while [ ! -f /etc/mongodb/pki/keyfile ]; do sleep 1; done
+      
+      echo "Keyfile found, starting mongod without authentication first..."
+      # Start MongoDB in the background with replication enabled without initially requiring authentication.
+      mongod --replSet rs0 --bind_ip_all --port 27017 &
+      
+      # Store the process ID of the started mongod instance.
+      MONGO_PID=$!
+      
+      echo "Waiting for MongoDB to start..."
+      # Poll the MongoDB process until it is ready to accept connections.
+      until mongosh --port 27017 --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        sleep 2
+      done
+      
+      echo "Initializing replica set..."
+      # Initialize the replica set with a single member and set its host address.
+      # Note: host.docker.internal provides a host network reference.
+      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"host.docker.internal:27017\"}]})"
+      
+      echo "Waiting for replica set to initialize..."
+      # Allow some time for the replica set configuration to propagate.
+      sleep 5
+      
+      echo "Creating admin user..."
+      # Create an admin user with root privileges in the admin database.
+      mongosh --port 27017 --eval "
+        db = db.getSiblingDB(\"admin\");
+        db.createUser({
+          user: \"admin\",
+          pwd: \"password\",
+          roles: [{ role: \"root\", db: \"admin\" }]
+        });
+      "
+    
+      echo "Stopping MongoDB to restart with authentication..."
+      # Stop the previously started MongoDB instance by killing its process.
+      kill $MONGO_PID
+      wait $MONGO_PID
+      
+      echo "Starting MongoDB with authentication..."
+      # Restart MongoDB ensuring that authentication is enabled by providing the keyfile.
+      exec mongod --replSet rs0 --bind_ip_all --port 27017 --keyFile /etc/mongodb/pki/keyfile
+      '
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]  # Healthcheck command to verify MongoDB is reachable.
+      interval: 10s                                   # Check health status every 10 seconds.
+      timeout: 10s                                    # Timeout if no response is received within 10 seconds.
+      retries: 10                                     # Attempt up to 10 retries before marking the container as unhealthy.
+    networks:
+      - mongo-cluster                                 # Connect this container to the mongo-cluster network.
+
+  # Data loader service that imports sample Reddit JSON data into the MongoDB.
+  data-loader:
+    image: mongo:8.0                                  # Use MongoDB image to leverage mongoimport tool.
+    container_name: sample_data_loader                # Explicit container name for clarity.
+    depends_on:
+      primary_mongo:
+        condition: service_healthy                  # Wait for the primary MongoDB service to be healthy before starting.
+    entrypoint: |                                   # Custom entrypoint script to run the data loading commands.
+      bash -c '
+      echo "Waiting for MongoDB admin user to be ready..."
+      # Keep checking until the MongoDB admin user is available and accepting connections.
+      until mongosh --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        echo "Waiting for admin authentication to be ready..."
+        sleep 2
+      done
+      
+      # Update package lists and install additional utilities (curl, wget, jq) needed for fetching and processing data.
+      apt-get update && apt-get install -y curl wget jq
+      
+      echo "Downloading Sample Reddit data..."
+      # Download sample Reddit data in JSON format from a remote GitHub repository into a temporary file.
+      curl -s "https://raw.githubusercontent.com/datazip-inc/olake-docs/refs/heads/master/static/reddit.json" >> /tmp/reddit.json
+      
+      echo "Importing Sample Reddit data into the reddit database, funny collection..."
+      # Use mongoimport to load the JSON data into the MongoDB database named "reddit" and collection named "funny".
+      mongoimport --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --db reddit --collection funny --file /tmp/reddit.json --jsonArray
+      
+      echo "Sample Reddit data import complete!"
+      '
+    restart: "no"                                    # The container will not restart automatically after the data is loaded.
+    networks:
+      - mongo-cluster                                 # Connect to the mongo-cluster network.
+
+# Define a network named 'mongo-cluster' for the services to communicate.
+networks:
+  mongo-cluster:
+
+# Define a volume to persist the MongoDB keyfile across container restarts and share it among containers.
+volumes:
+  mongo-keyfile-vol:
+```
+
+
+## 2. Starting MongoDB
+
+To start the MongoDB container, run the following command from your project directory:
+
+```bash
+docker compose up -d
+```
+
+## 3. OLake Integration
+
+Update your source configuration file (`source.json`) to connect to MongoDB as follows:
+
+```json title="source.json"
+{
+  "hosts": ["host.docker.internal:27017"],
+  "username": "admin",
+  "password": "password",
+  "authdb": "admin",
+  "replica-set": "rs0",
+  "read-preference": "secondaryPreferred",
+  "srv": false,
+  "server-ram": 16,
+  "database": "reddit",
+  "max_threads": 5,
+  "backoff_retry_count": 4
+}
+```
+
+</TabItem>
+
+<TabItem value="build" label="Using Local build OLake" default>
+
+:::info
+Clone the OLake repository
+
+GitHub repository
+```sh
+git clone git@github.com:datazip-inc/olake.git
+```
+
+:::
+## 1. Starting `docker-compose.yml` for syncing Data with OLake built locally
+
+This compose file does the following:
+- **MongoDB Keyfile Generation**: Generates a keyfile for MongoDB authentication.
+- **MongoDB Primary Node**: Sets up a primary MongoDB instance with a replica set configuration.
+- **Data Loader**: Loads sample Reddit data into the MongoDB instance.
+- **Network and Volume Configuration**: Defines a network for inter-container communication and a volume for persistent storage of the keyfile.
+- **Health Checks**: Implements health checks to ensure MongoDB is running and accessible.
+- **Service Dependencies**: Ensures that the data loader waits for the MongoDB instance to be healthy before starting.
+- **Custom Entry Points**: Uses custom entry points for the data loader to ensure it waits for the MongoDB instance to be ready before attempting to load data.
+
+
+```yaml title="docker-compose.yml"
+# Define the services that will run as containers, the networks they use, and shared volumes.
+services:
+  # Service to initialize the MongoDB keyfile.
+  init-keyfile:
+    image: mongo:8.0                                 # Use MongoDB version 8.0 as the base image.
+    container_name: init_keyfile                     # Explicit container name for easier identification.
+    command: >                                       # Execute a shell command on container startup.
+      sh -c "
+      # Check if the keyfile does not already exist.
+      if [ ! -f /etc/mongodb/pki/keyfile ]; then
+        echo 'Generating keyfile...';
+        # Generate a random keyfile using OpenSSL with base64 encoding and save it to the expected location.
+        # Then set the file permission to read-only (400) for security.
+        openssl rand -base64 756 > /etc/mongodb/pki/keyfile && chmod 400 /etc/mongodb/pki/keyfile;
+      else
+        # If the keyfile already exists, output a message.
+        echo 'Keyfile already exists.';
+      fi
+      "
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
+    networks:
+      - mongo-cluster                                 # Connect this container to the defined mongo-cluster network.
+    restart: "no"                                     # This container should not restart automatically.
+
+  # Primary MongoDB container that sets up a replica set and creates an admin user.
+  primary_mongo:
+    container_name: primary_mongo                     # Set an explicit name for the primary MongoDB container.
+    image: mongo:8.0                                  # Use MongoDB version 8.0 as the container image.
+    hostname: primary_mongo                           # Set the hostname within the container network.
+    ports:
+      - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+    depends_on:
+      - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume to share the generated keyfile.
+    command: |                                        # Execute a series of shell commands using a multi-line script.
+      bash -c '
+      echo "Waiting for keyfile..."
+      # Wait until the keyfile is available before proceeding.
+      while [ ! -f /etc/mongodb/pki/keyfile ]; do sleep 1; done
+      
+      echo "Keyfile found, starting mongod without authentication first..."
+      # Start MongoDB in the background with replication enabled without initially requiring authentication.
+      mongod --replSet rs0 --bind_ip_all --port 27017 &
+      
+      # Store the process ID of the started mongod instance.
+      MONGO_PID=$!
+      
+      echo "Waiting for MongoDB to start..."
+      # Poll the MongoDB process until it is ready to accept connections.
+      until mongosh --port 27017 --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        sleep 2
+      done
+      
+      echo "Initializing replica set..."
+      # Initialize the replica set with a single member and set its host address.
+      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"localhost:27017\"}]})"
+      
+      echo "Waiting for replica set to initialize..."
+      # Allow some time for the replica set configuration to propagate.
+      sleep 5
+      
+      echo "Creating admin user..."
+      # Create an admin user with root privileges in the admin database.
+      mongosh --port 27017 --eval "
+        db = db.getSiblingDB(\"admin\");
+        db.createUser({
+          user: \"admin\",
+          pwd: \"password\",
+          roles: [{ role: \"root\", db: \"admin\" }]
+        });
+      "
+    
+      echo "Stopping MongoDB to restart with authentication..."
+      # Stop the previously started MongoDB instance by killing its process.
+      kill $MONGO_PID
+      wait $MONGO_PID
+      
+      echo "Starting MongoDB with authentication..."
+      # Restart MongoDB ensuring that authentication is enabled by providing the keyfile.
+      exec mongod --replSet rs0 --bind_ip_all --port 27017 --keyFile /etc/mongodb/pki/keyfile
+      '
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]  # Healthcheck command to verify MongoDB is reachable.
+      interval: 10s                                   # Check health status every 10 seconds.
+      timeout: 10s                                    # Timeout if no response is received within 10 seconds.
+      retries: 10                                     # Attempt up to 10 retries before marking the container as unhealthy.
+    networks:
+      - mongo-cluster                                 # Connect this container to the mongo-cluster network.
+
+  # Data loader service that imports sample Reddit JSON data into the MongoDB.
+  data-loader:
+    image: mongo:8.0                                  # Use MongoDB image to leverage mongoimport tool.
+    container_name: sample_data_loader                # Explicit container name for clarity.
+    depends_on:
+      primary_mongo:
+        condition: service_healthy                  # Wait for the primary MongoDB service to be healthy before starting.
+    entrypoint: |                                   # Custom entrypoint script to run the data loading commands.
+      bash -c '
+      echo "Waiting for MongoDB admin user to be ready..."
+      # Keep checking until the MongoDB admin user is available and accepting connections.
+      until mongosh --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        echo "Waiting for admin authentication to be ready..."
+        sleep 2
+      done
+      
+      # Update package lists and install additional utilities (curl, wget, jq) needed for fetching and processing data.
+      apt-get update && apt-get install -y curl wget jq
+      
+      echo "Downloading Sample Reddit data..."
+      # Download sample Reddit data in JSON format from a remote GitHub repository into a temporary file.
+      curl -s "https://raw.githubusercontent.com/datazip-inc/olake-docs/refs/heads/master/static/reddit.json" >> /tmp/reddit.json
+      
+      echo "Importing Sample Reddit data into the reddit database, funny collection..."
+      # Use mongoimport to load the JSON data into the MongoDB database named "reddit" and collection named "funny".
+      mongoimport --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --db reddit --collection funny --file /tmp/reddit.json --jsonArray
+      
+      echo "Sample Reddit data import complete!"
+      '
+    restart: "no"                                    # The container will not restart automatically after the data is loaded.
+    networks:
+      - mongo-cluster                                 # Connect to the mongo-cluster network.
+
+# Define a network named 'mongo-cluster' for the services to communicate.
+networks:
+  mongo-cluster:
+
+# Define a volume to persist the MongoDB keyfile across container restarts and share it among containers.
+volumes:
+  mongo-keyfile-vol:
+```
+
+## 2. Starting MongoDB
+
+To start the MongoDB container, run the following command from your project directory:
+
+```bash
+docker compose -f ./drivers/mongodb/config/docker-compose.yml up -d
+```
+
+## 3. OLake Integration
+
+Update your source configuration file (`source.json`) to connect to MongoDB as follows:
+
+```json title="source.json"
+{
+  "hosts": ["localhost:27017"],
+  "username": "admin",
+  "password": "password",
+  "authdb": "admin",
+  "replica-set": "rs0",
+  "read-preference": "secondaryPreferred",
+  "srv": false,
+  "server-ram": 16,
+  "database": "reddit",
+  "max_threads": 5,
+  "backoff_retry_count": 4
+}
+```
+
+</TabItem>
+</Tabs>
+
+:::info
+Now that you are setup with a local database setup, head over to the [streams configuration](/docs/install/docker-cli#streams-config) to start syncing data with OLake.
+:::
+
+## 4. Perform DDL and DML operations to test OLake (optional)
+- **To check the status of the container, perform**:
+
+  ```bash
+  docker ps
+  ```
+  
+  This will list all running containers. Look for the `primary_mongo` container.
+
+- **Container Logs:**  
+  Check container logs to see if everything is working fine:
+  
+  ```bash
+  docker logs primary_mongo
+  ```
+
+- **exec into MongoDB container:**  
+  You can also exec into the MongoDB container to troubleshoot:
+
+  ```bash
+  docker exec -it primary_mongo /bin/bash
+  ```
+
+- **MongoDB Shell:**  
+  You can use the MongoDB shell to perform DDL and DML operations. Connect to the MongoDB instance using:
+
+  ```bash
+  mongosh mongodb://admin:password@localhost:27017
+  ```
+
+### Some handy MongoDB commands
+
+```sql
+show dbs; -- to show the present databases
+use reddit; -- to use a database named "reddit"
+show collections; -- to show all the collections inside a chosen database
+db.funny.insert({name: 'Red Delicious'}) -- add JSON data, here, "funny" is a name of a collection
+db.funny.find().pretty() -- to list all the record of a collection
+db.funny.updateOne(
+  { _id: ObjectId("67ed7a7824c200a3fb300589") },
+  { $set: { title: "hello mongodb" } }
+);
+db.funny.deleteOne({ _id: ObjectId("67e5c2e2bae4e0ab35d8b199") }) -- to delete one record
+db.funny.deleteMany({}) -- to delete the entire "funny" collection
+```
+
+## 5. Stop the Container
+- **To stop the container, perform**:
+
+  ```bash
+  docker compose -f ./drivers/mongodb/config/docker-compose.yml down --remove-orphans -v
+  ```
+
+OR
+
+- **To stop the container, perform**:
+
+  ```bash
+  docker compose down --remove-orphans -v
+  ```
+
+depending upon the directory you are in.
+
+This will stop and remove all containers defined in the `docker-compose.yml` file, along with any orphaned containers and associated volumes.
+
+- **To remove the container, perform**:
+
+  ```bash
+  docker rm -f primary_mongo
+  ```
+
+This will forcefully remove the specified container by its ID.
+
+- **To remove the image, perform**:
+
+  ```bash
+  docker rmi -f IMAGE_ID
+  ```
+This will forcefully remove the specified image by its ID.
+
+## Additional References
+
+<AdditionalReferences/>

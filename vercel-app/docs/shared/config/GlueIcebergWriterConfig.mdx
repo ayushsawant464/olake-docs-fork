@@ -1,0 +1,14 @@
+```json title="destination.json"
+{
+    "type": "ICEBERG",
+    "writer": {
+      "catalog_type": "glue",
+      "catalog_name": "olake_iceberg",
+      "iceberg_s3_path": "s3://<BUCKET_NAME>/",
+      "aws_region": "<AWS_REGION>",
+      "aws_access_key": "<AWS_ACCESS_KEY>",
+      "aws_secret_key": "<AWS_SECRET_KEY>",
+      "arrow_writes": false
+    }
+}
+```

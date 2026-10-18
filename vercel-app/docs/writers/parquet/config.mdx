@@ -1,0 +1,53 @@
+---
+title: "OLake Parquet S3 Writer Setup & Configuration Guide"
+description: Configure OLake to write Parquet files to AWS S3, GCS, or MinIO with detailed setup, IAM permissions, HMAC keys, and endpoint configurations
+sidebar_label: Config and SetUp
+sidebar_position: 2
+---
+
+# S3 Parquet
+
+OLake Go supports writing in parquet format directly to S3. Before proceeding with the S3 Parquet destination, we recommend reviewing the [Getting Started](/docs/getting-started/quickstart) and [Installation](/docs/install/olake-ui) sections.
+
+---
+
+## Prerequisites
+- Before setting up the destination, make sure you have successfully set up the [`source`](/docs/getting-started/creating-first-pipeline#2-configure-source).
+- **AWS S3:** Review the minimum required [IAM Permissions for S3 Parquet Writer](/docs/writers/parquet/permission).
+- **GCS:** Review [GCP IAM Permission](/docs/writers/parquet/permission#2-gcs-google-cloud-storage-iam-policy) for role-based access, and create HMAC keys for your service account to use as S3 credentials. See [Creation of HMAC Keys](https://docs.cloud.google.com/storage/docs/authentication/hmackeys) below.
+
+---
+
+## Configuration
+
+<Tabs groupId="S3-parquet" queryString="S3">
+
+<TabItem value="OLake-UI" label="OLake UI" default>
+
+- Before setting up the destination, make sure you have successfully set up the [source](/docs/getting-started/creating-first-pipeline#2-configure-source).
+
+![OLake S3 destination config fields and reference guide.](/img/docs/s3/s3-destination.webp)
+
+<S3ConfigUIDetails/>
+
+</TabItem>
+
+<TabItem value="OLake-CLI" label="OLake CLI" default>
+
+<S3Config/>
+
+<S3ConfigDetails/>
+
+</TabItem>
+</Tabs>
+
+---
+
+:::info
+1. The generated `.parquet` files use SNAPPY compression ([Read more](https://en.wikipedia.org/wiki/Snappy_(compression))). Note that SNAPPY is no longer supported by S3 Select when performing queries.  
+2. OLake Go creates a test folder named `olake_writer_test` containing a single text file (`.txt`) with the content:
+   ```text
+   S3 write test
+   ```
+   This is used to verify that you have the necessary permissions to write to S3.
+:::
