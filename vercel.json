@@ -3,19 +3,19 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/vercel-app/api/index.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/ask",
-      "destination": "/vercel-app/api/index.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/version",
-      "destination": "/vercel-app/api/index.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/models",
-      "destination": "/vercel-app/api/index.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/demo",
