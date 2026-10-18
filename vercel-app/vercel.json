@@ -10,6 +10,18 @@
       "destination": "/api/index.py"
     },
     {
+      "source": "/version",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/models",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/demo",
+      "destination": "/public/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/public/$1"
     }

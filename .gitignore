@@ -22,3 +22,5 @@ yarn-error.log*
 .vscode/
 .cocoindex_code/
 CLAUDE.local.md
+.vercel
+.env*

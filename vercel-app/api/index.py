@@ -9,7 +9,8 @@ import os
 import json
 import requests
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -53,8 +54,12 @@ class AskRequest(BaseModel):
     question: str
 
 @app.get("/")
-@app.get("/api/health")
+@app.get("/api")
+@app.get("/api/")
 @app.get("/health")
+@app.get("/api/health")
+@app.get("/api/index.py")
+@app.get("/api/index.py/health")
 def health():
     return {
         "status": "ok",
@@ -62,14 +67,57 @@ def health():
         "primary_model": PRIMARY_MODEL
     }
 
+@app.get("/version")
+@app.get("/api/version")
+@app.get("/api/index.py/version")
+def version():
+    return {
+        "commit": os.environ.get("VERCEL_GIT_COMMIT_SHA", ""),
+        "deployment": os.environ.get("VERCEL_DEPLOYMENT_ID", "")
+    }
+
+@app.get("/models")
+@app.get("/api/models")
+@app.get("/api/index.py/models")
+def models():
+    api_key = (os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY or "").strip().strip('"\'')
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENROUTER_API_KEY environment variable is not configured in Vercel settings."
+        )
+    try:
+        r = requests.get(
+            "https://openrouter.ai/api/v1/models/user",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return {"models": [m["id"] for m in r.json().get("data", [])]}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch models from OpenRouter: {str(e)}")
+
+@app.get("/demo")
+@app.get("/api/demo")
+def demo():
+    html_path = os.path.join(BASE_DIR, "public", "index.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path)
+    return {"message": "Please visit / for the demo widget"}
+
+@app.post("/")
+@app.post("/api")
+@app.post("/api/")
 @app.post("/ask")
 @app.post("/api/ask")
+@app.post("/api/index.py")
+@app.post("/api/index.py/ask")
 def ask(req: AskRequest):
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    api_key = (os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY or "").strip().strip('"\'')
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -135,3 +183,22 @@ def ask(req: AskRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process query: {str(e)}")
+
+@app.api_route("/{full_path:path}", methods=["GET", "POST"])
+async def catch_all(full_path: str, request: Request):
+    clean = full_path.strip("/").split("/")[-1]
+    if request.method == "GET":
+        if clean == "version":
+            return version()
+        if clean == "models":
+            return models()
+        if clean == "demo":
+            return demo()
+        return health()
+    try:
+        body = await request.json()
+        q = body.get("question", "")
+        return ask(AskRequest(question=q))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+
